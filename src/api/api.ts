@@ -6,6 +6,20 @@
 //
 // Your task:
 // Complete the TODOs below using TypeScript and fetch().
+import { 
+  User,
+  AuthResponse,
+  RegisterData,
+  LoginData,
+  Project,
+  CreateProjectData,
+  UpdateProjectData, 
+  Task,
+  CreateTaskData,
+  UpdateTaskData,
+  TaskFilters,
+  HttpMethod,
+   } from '../types';
 
 const BASE_URL = 'http://localhost:4000';
 
@@ -66,18 +80,21 @@ const BASE_URL = 'http://localhost:4000';
 // After creating these types, replace the temporary "unknown" types below
 // with your proper TypeScript types.
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO 2: Authentication token
 // ─────────────────────────────────────────────────────────────────────────────
-
+const TOKEN_KEY = 'tf_token';
+const USER_KEY = 'tf_user';
 const getToken = (): string | null => {
   // TODO:
   // Read "tf_token" from localStorage.
-
-  return null;
+  return localStorage.getItem(TOKEN_KEY);
 };
 
+const saveSession = (token: string, user: User): void => {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO 3: HTTP request helper
@@ -93,7 +110,7 @@ const getToken = (): string | null => {
 // DELETE
 
 const request = async <T>(
-  method: string,
+  method: HttpMethod,
   path: string,
   body?: unknown,
   auth = true,
@@ -103,7 +120,9 @@ const request = async <T>(
   //
   // Content-Type should be:
   // application/json
-
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
 
   // TODO:
   // 2. If auth === true:
@@ -113,7 +132,13 @@ const request = async <T>(
   //
   // Expected format:
   // Bearer <token>
-
+  if (auth) {
+    const token = getToken();
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   // TODO:
   // 3. Send the request using fetch().
@@ -124,15 +149,21 @@ const request = async <T>(
   // - method
   // - headers
   // - body
-
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
 
   // TODO:
   // 4. Handle status 204 No Content.
-
+  if (response.status === 204) {
+    return undefined as T;
+  }
 
   // TODO:
   // 5. Parse the JSON response.
-
+  const data = await response.json().catch(() => null);
 
   // TODO:
   // 6. Handle unsuccessful HTTP responses.
@@ -145,12 +176,18 @@ const request = async <T>(
   //     email: "already taken"
   //   }
   // }
-
+  if (!response.ok) {
+    if (data?.fields) {
+      const fieldErrors = Object.values(data.fields)[0] as string;
+      throw new Error(fieldErrors);
+    }
+    throw new Error(data?.error || 'Request failed');
+  }
 
   // TODO:
   // 7. Return the successful response.
-
-  throw new Error('TODO: Implement request()');
+  return data as T;
+  // throw new Error('TODO: Implement request()');
 };
 
 
@@ -166,14 +203,29 @@ const request = async <T>(
 // patch<T>()
 // del<T>()
 
+const get = <T>(path: string, auth = true): Promise<T> => {
+  return request<T>('GET', path, undefined, auth);
+}
+
+const post = <T>(path: string, body?: unknown, auth = true): Promise<T> => {
+  return request<T>('POST', path, body, auth);
+}
+
+const patch = <T>(path: string, body?: unknown, auth = true): Promise<T> => {
+  return request<T>('PATCH', path, body, auth);
+}
+
+const del = <T>(path: string, auth = true): Promise<T> => {
+  return request<T>('DELETE', path, undefined, auth);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO 5: Authentication
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const registerUser = async (
-  data: unknown,
-): Promise<unknown> => {
+  data: RegisterData,
+): Promise<AuthResponse> => {
   // TODO:
   // Replace "unknown" with your RegisterData and AuthResponse types.
   //
@@ -185,14 +237,17 @@ export const registerUser = async (
   // - Save the token
   // - Save the user
   // - Return the response
+  const response = await post<AuthResponse>('/auth/register', data, false);
+  saveSession(response.token, response.user);
+  return response;
 
-  throw new Error('TODO: Implement registerUser()');
+  // throw new Error('TODO: Implement registerUser()');
 };
 
 
 export const loginUser = async (
-  data: unknown,
-): Promise<unknown> => {
+  data: LoginData,
+): Promise<AuthResponse> => {
   // TODO:
   // Replace "unknown" with the correct TypeScript types.
   //
@@ -205,11 +260,15 @@ export const loginUser = async (
   // - Save user
   // - Return response
 
-  throw new Error('TODO: Implement loginUser()');
+  const response = await post<AuthResponse>('/auth/login', data, false);
+  saveSession(response.token, response.user);
+  return response;
+
+  // throw new Error('TODO: Implement loginUser()');
 };
 
 
-export const getMe = (): unknown => {
+export const getMe = (): User | null => {
   // TODO:
   // Replace "unknown" with the proper return type.
   //
@@ -219,17 +278,21 @@ export const getMe = (): unknown => {
   // Return null when:
   // - no user exists
   // - stored JSON is invalid
-
-  return null;
+  try {
+    const userJson = localStorage.getItem(USER_KEY);
+    if (!userJson) return null;
+    return JSON.parse(userJson) as User;
+  } catch {
+    return null;
+  }
 };
-
 
 export const isAuthenticated = (): boolean => {
   // TODO:
   // The user is authenticated only when
   // both token and user exist.
-
-  return false;
+  return Boolean(getToken() && getMe());
+  // return false;
 };
 
 
@@ -238,6 +301,8 @@ export const logout = (): void => {
   // Remove:
   // - tf_token
   // - tf_user
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
 };
 
 
@@ -248,12 +313,11 @@ export const logout = (): void => {
 // - token as "tf_token"
 // - user as "tf_user"
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO 6: Projects API
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const fetchProjects = async (): Promise<unknown[]> => {
+export const fetchProjects = async (): Promise<Project[]> => {
   // TODO:
   // Replace "unknown[]" with the proper type.
   //
@@ -266,41 +330,38 @@ export const fetchProjects = async (): Promise<unknown[]> => {
   // }
   //
   // Return ONLY the projects array.
-
-  throw new Error('TODO: Implement fetchProjects()');
+  const response = await get<{ projects: Project[] }>('/projects');
+  return response.projects;
 };
 
 
 export const createProject = async (
-  data: unknown,
-): Promise<unknown> => {
+  data: CreateProjectData,
+): Promise<Project> => {
   // TODO:
   // Add correct TypeScript types.
   //
   // POST /projects
-
-  throw new Error('TODO: Implement createProject()');
+  return post<Project>('/projects', data);
 };
 
 
 export const fetchProject = async (
   id: string,
-): Promise<unknown> => {
+): Promise<Project> => {
   // TODO:
   // GET /projects/:id
-
-  throw new Error('TODO: Implement fetchProject()');
+  return get<Project>(`/projects/${id}`);
 };
 
 
 export const updateProject = async (
   id: string,
-  data: unknown,
-): Promise<unknown> => {
+  data: UpdateProjectData,
+): Promise<Project> => {
   // TODO:
   // PATCH /projects/:id
-
-  throw new Error('TODO: Implement updateProject()');
+  return patch<Project>(`/projects/${id}`, data);
 };
 
 
@@ -309,8 +370,7 @@ export const deleteProject = async (
 ): Promise<void> => {
   // TODO:
   // DELETE /projects/:id
-
-  throw new Error('TODO: Implement deleteProject()');
+  return del<void>(`/projects/${id}`);
 };
 
 
@@ -320,8 +380,8 @@ export const deleteProject = async (
 
 export const fetchTasks = async (
   projectId: string,
-  filters: Record<string, string> = {},
-): Promise<unknown[]> => {
+  filters: TaskFilters = {},
+): Promise<Task[]> => {
   // TODO:
   // Replace temporary types with your Task and TaskFilters types.
   //
@@ -334,34 +394,41 @@ export const fetchTasks = async (
   // /projects/proj-001/tasks?status=todo&priority=high
   //
   // Do NOT add undefined filter values.
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') {
+      params.append(key, value as string);
+    }
+  });
 
-  throw new Error('TODO: Implement fetchTasks()');
+  const queryString = params.toString();
+  const path = `/projects/${projectId}/tasks${queryString ? `?${queryString}` : ''}`;
+  const response = await get<{ tasks: Task[] }>(path);
+  return response.tasks;
 };
 
 
 export const createTask = async (
   projectId: string,
-  data: unknown,
-): Promise<unknown> => {
+  data: CreateTaskData,
+): Promise<Task> => {
   // TODO:
   // POST /projects/:projectId/tasks
   //
   // Replace the temporary types.
-
-  throw new Error('TODO: Implement createTask()');
+  return post<Task>(`/projects/${projectId}/tasks`, data);
 };
 
 
 export const updateTask = async (
   taskId: string,
-  data: unknown,
-): Promise<unknown> => {
+  data: UpdateTaskData,
+): Promise<Task> => {
   // TODO:
   // PATCH /tasks/:taskId
   //
   // Replace the temporary types.
-
-  throw new Error('TODO: Implement updateTask()');
+  return patch<Task>(`/tasks/${taskId}`, data);
 };
 
 
@@ -370,6 +437,5 @@ export const deleteTask = async (
 ): Promise<void> => {
   // TODO:
   // DELETE /tasks/:taskId
-
-  throw new Error('TODO: Implement deleteTask()');
+  return del<void>(`/tasks/${taskId}`);
 };
